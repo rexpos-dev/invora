@@ -1,0 +1,399 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id           Int        @id @default(autoincrement())
+  name         String
+  email        String?    @unique
+  phone        String?
+  avatar       String?
+  street       String?
+  city         String?
+  state        String?
+  zip          String?
+  orderHistory Json?
+  totalSpent   Float?     @default(0)
+  role         String?
+  createdBy    Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @default(now()) @updatedAt
+  isActive     Boolean    @default(true)
+  orders       Order[]
+  preOrders    PreOrder[]
+
+  @@index([createdAt])
+  @@map("customers")
+}
+
+model Order {
+  id             Int            @id @default(autoincrement())
+  customerName   String
+  contactNumber  String?
+  address        String?
+  orderDate      DateTime?
+  itemName       String
+  items          Json?
+  quantity       Int
+  price          Float
+  shippingFee    Float
+  totalAmount    Float
+  paymentMethod  String?
+  paymentStatus  String?
+  shippingStatus String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now()) @updatedAt
+  customerEmail  String?
+  courierName    String?
+  trackingNumber String?
+  remarks        String?
+  rushShip       Boolean        @default(false)
+  createdBy      Json?
+  customerId     Int
+  batchId        Int?
+  inventoryLogs  InventoryLog[]
+  batch          Batch?         @relation(fields: [batchId], references: [id])
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  salesLogs      SalesLog[]
+
+  @@index([batchId], map: "orders_batchId_fkey")
+  @@index([customerId], map: "orders_customerId_fkey")
+  @@index([createdAt])
+  @@index([orderDate])
+  @@map("orders")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  title     String
+  message   String
+  type      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model Batch {
+  id                Int                @id @default(autoincrement())
+  batchName         String
+  status            String
+  totalOrders       Int?
+  totalSales        Float?
+  createdBy         Json?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  manufactureDate   DateTime           @default(now())
+  orders            Order[]
+  preOrders         PreOrder[]
+  products          Product[]
+  warehouseProducts WarehouseProduct[]
+
+  @@index([createdAt])
+  @@index([manufactureDate])
+  @@map("batches")
+}
+
+model ProductCategory {
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  description       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @default(now()) @updatedAt
+  imageUrl          String?            @db.LongText
+  products          Product[]
+  warehouseProducts WarehouseProduct[]
+
+  @@map("product_categories")
+}
+
+model Product {
+  id               Int               @id @default(autoincrement())
+  name             String
+  sku              String
+  description      String?
+  quantity         Int               @default(0)
+  alertStock       Int               @default(0)
+  cost             Float
+  retailPrice      Float?
+  images           Json?
+  createdBy        Json?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @default(now()) @updatedAt
+  branchId         Int?
+  batchId          Int?
+  categoryId       Int?
+  warehouseId      Int?
+  inventoryLogs    InventoryLog[]
+  preOrders        PreOrder[]
+  batch            Batch?            @relation(fields: [batchId], references: [id])
+  category         ProductCategory?  @relation(fields: [categoryId], references: [id])
+  warehouseProduct WarehouseProduct? @relation(fields: [warehouseId], references: [id])
+  branch           Branch?           @relation(fields: [branchId], references: [id])
+
+  @@index([warehouseId], map: "products_warehouseId_fkey")
+  @@index([batchId], map: "products_batchId_fkey")
+  @@index([categoryId], map: "products_categoryId_fkey")
+  @@index([branchId], map: "products_branchId_fkey")
+  @@index([createdAt])
+  @@map("products")
+}
+
+model User {
+  id               Int            @id @default(autoincrement())
+  name             String
+  email            String         @unique
+  password         String
+  role             String?
+  permissions      Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @default(now()) @updatedAt
+  isActive         Boolean        @default(true)
+  isOnline         Boolean        @default(false)
+  branchId         Int?
+  roleId           Int?
+  inventoryLogs    InventoryLog[]
+  receivedMessages Message[]      @relation("ReceivedMessages")
+  sentMessages     Message[]      @relation("SentMessages")
+  notifications    Notification[]
+  branch           Branch?        @relation(fields: [branchId], references: [id])
+  role_rel         Role?          @relation("UserRole", fields: [roleId], references: [id])
+
+  @@index([branchId], map: "users_branchId_fkey")
+  @@index([roleId], map: "users_roleId_fkey")
+  @@map("users")
+}
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  content    String   @db.LongText
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  senderId   Int
+  receiverId Int
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("messages")
+}
+
+model Branch {
+  id            Int            @id @default(autoincrement())
+  name          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
+  inventoryLogs InventoryLog[]
+  users         User[]
+  products      Product[]
+
+  @@map("branches")
+}
+
+model Role {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  users     User[]   @relation("UserRole")
+
+  @@map("roles")
+}
+
+model ArchiveData {
+  id        Int      @id @default(autoincrement())
+  tableName String
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("archive_data")
+}
+
+model Station {
+  id            Int      @id @default(autoincrement())
+  name          String
+  location      String
+  type          String
+  contactNumber String?
+  latitude      Float?
+  longitude     Float?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  @@map("stations")
+}
+
+model WarehouseProduct {
+  id               Int              @id @default(autoincrement())
+  productName      String
+  sku              String
+  quantity         Int              @default(0)
+  manufacture_date DateTime?
+  image            String?          @db.LongText
+  location         String?
+  cost             Float
+  retailPrice      Float?
+  images           Json?
+  createdBy        Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @default(now()) @updatedAt
+  alertStock       Int              @default(0)
+  batchId          Int?
+  productId        Int?
+  categoryId       Int?
+  inventoryLogs    InventoryLog[]
+  products         Product[]
+  batch            Batch?           @relation(fields: [batchId], references: [id])
+  category         ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  @@index([batchId], map: "warehouse_products_batchId_fkey")
+  @@index([productId], map: "warehouse_products_productId_fkey")
+  @@index([categoryId], map: "warehouse_products_categoryId_fkey")
+  @@map("warehouse_products")
+}
+
+model DatabaseOperation {
+  id        Int      @id @default(autoincrement())
+  type      String
+  fileName  String
+  fileSize  String
+  status    String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@map("database_operations")
+}
+
+model SalesLog {
+  id           Int       @id @default(autoincrement())
+  products     String?
+  description  String?
+  orders       Json?
+  customerName String?
+  totalAmount  Float?
+  shipments    Json?
+  order_items  Json?
+  createdAt    DateTime  @default(now())
+  orderId      Int?
+  preOrderId   Int?
+  order        Order?    @relation(fields: [orderId], references: [id])
+  preOrder     PreOrder? @relation(fields: [preOrderId], references: [id])
+
+  @@index([orderId])
+  @@index([preOrderId])
+  @@index([createdAt])
+  @@map("sales_logs")
+}
+
+model AdminLog {
+  id           Int      @id @default(autoincrement())
+  action       String
+  module       String?
+  description  String?
+  performedBy  Json?
+  targetId     String?
+  targetType   String?
+  previousData Json?
+  newData      Json?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+
+  @@index([action])
+  @@index([module])
+  @@index([createdAt])
+  @@map("admin_logs")
+}
+
+model PreOrder {
+  id            Int            @id @default(autoincrement())
+  customerName  String
+  contactNumber String?
+  address       String?
+  orderDate     DateTime?
+  totalAmount   Float
+  paymentMethod String?
+  paymentStatus String?        @default("Unpaid")
+  depositAmount Float?         @default(0)
+  customerEmail String?
+  remarks       String?
+  createdBy     Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
+  customerId    Int
+  batchId       Int?
+  productId     Int?
+  inventoryLogs InventoryLog[]
+  items         PreOrderItem[]
+  batch         Batch?         @relation(fields: [batchId], references: [id])
+  customer      Customer       @relation(fields: [customerId], references: [id])
+  product       Product?       @relation(fields: [productId], references: [id])
+  salesLogs     SalesLog[]
+
+  @@index([customerId], map: "pre_orders_customerId_fkey")
+  @@index([batchId], map: "pre_orders_batchId_fkey")
+  @@index([productId], map: "pre_orders_productId_fkey")
+  @@index([createdAt])
+  @@index([orderDate])
+  @@map("pre_orders")
+}
+
+model PreOrderItem {
+  id           Int      @id @default(autoincrement())
+  productName  String
+  quantity     Int
+  pricePerUnit Float
+  totalPrice   Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  images       Json?
+  preOrderId   Int
+  preOrder     PreOrder @relation(fields: [preOrderId], references: [id], onDelete: Cascade)
+
+  @@index([preOrderId], map: "pre_order_items_preOrderId_fkey")
+  @@map("pre_order_items")
+}
+
+model InventoryLog {
+  id                 Int               @id @default(autoincrement())
+  action             String
+  quantityChange     Int
+  previousStock      Int
+  newStock           Int
+  reason             String?
+  referenceId        String?
+  performedBy        Json?
+  createdAt          DateTime          @default(now())
+  productId          Int?
+  warehouseProductId Int?
+  orderId            Int?
+  preOrderId         Int?
+  userId             Int?
+  branchId           Int?
+  branch             Branch?           @relation(fields: [branchId], references: [id])
+  order              Order?            @relation(fields: [orderId], references: [id])
+  preOrder           PreOrder?         @relation(fields: [preOrderId], references: [id])
+  product            Product?          @relation(fields: [productId], references: [id])
+  user               User?             @relation(fields: [userId], references: [id])
+  warehouseProduct   WarehouseProduct? @relation(fields: [warehouseProductId], references: [id])
+
+  @@index([productId])
+  @@index([warehouseProductId])
+  @@index([orderId])
+  @@index([preOrderId])
+  @@index([userId])
+  @@index([branchId])
+  @@index([createdAt])
+  @@map("inventory_logs")
+}

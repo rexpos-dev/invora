@@ -1,0 +1,334 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { MoreHorizontal, PlusCircle, Search, X, Package, PhilippinePeso, Plus, Minus, AlertTriangle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { AddWarehouseDialog } from "./add-warehouse-dialog";
+import { ViewWarehouseDialog } from "./view-warehouse-dialog";
+import { EditWarehouseDialog } from "./edit-warehouse-dialog";
+import { StockAdjustmentDialog } from "./stock-adjustment-dialog";
+import { BulkAddStockDialog } from "./bulk-add-stock-dialog";
+import { WarehouseProduct } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast";
+import { deleteWarehouseProduct } from "../actions";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
+export default function WarehouseProductsTable({ products: initialProducts, onRefresh }: { products: WarehouseProduct[], onRefresh: () => void }) {
+    const { toast } = useToast();
+    const router = useRouter();
+    const [products, setProducts] = React.useState<WarehouseProduct[]>(initialProducts);
+    const [searchTerm, setSearchTerm] = React.useState("");
+    const [currentPage, setCurrentPage] = React.useState(1);
+    const itemsPerPage = 10;
+    const [isAddDialogOpen, setAddDialogOpen] = React.useState(false);
+    const [isBulkAddDialogOpen, setIsBulkAddDialogOpen] = React.useState(false);
+    const [editingProduct, setEditingProduct] = React.useState<WarehouseProduct | null>(null);
+    const [viewingProduct, setViewingProduct] = React.useState<WarehouseProduct | null>(null);
+    const [stockAdjustment, setStockAdjustment] = React.useState<{
+        isOpen: boolean;
+        product: WarehouseProduct | null;
+        mode: "add" | "deduct";
+    }>({ isOpen: false, product: null, mode: "add" });
+
+    const refreshProducts = () => {
+        onRefresh();
+    };
+
+    React.useEffect(() => {
+        let filtered = initialProducts;
+
+        // Apply search filter
+        if (searchTerm) {
+            filtered = filtered.filter(
+                (product) =>
+                    product.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    (product.location && product.location.toLowerCase().includes(searchTerm.toLowerCase()))
+            );
+        }
+
+        setProducts(filtered);
+        setCurrentPage(1);
+    }, [searchTerm, initialProducts]);
+
+    const handleDelete = async (productId: string) => {
+        try {
+            const result = await deleteWarehouseProduct(productId);
+
+            if (!result.success) {
+                throw new Error(result.error || "Failed to delete product");
+            }
+
+            toast({
+                title: "Product Deleted",
+                description: "The warehouse product has been removed successfully.",
+            });
+
+            refreshProducts();
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error instanceof Error ? error.message : "Failed to delete product. Please try again.",
+            });
+        }
+    };
+
+    const paginatedProducts = products.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    const totalPages = Math.ceil(products.length / itemsPerPage);
+
+    const isFiltered = searchTerm !== "";
+
+    const resetFilters = () => {
+        setSearchTerm("");
+    };
+
+    return (
+        <>
+            <Card className="border-t-4 border-t-pink-500/50 shadow-sm">
+                <div className="flex items-center justify-between gap-2 p-4 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                type="search"
+                                placeholder="Search by name, SKU, or location..."
+                                className="pl-8 sm:w-[300px]"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        {isFiltered && (
+                            <Button variant="ghost" onClick={resetFilters}>
+                                Reset
+                                <X className="ml-2 h-4 w-4" />
+                            </Button>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setIsBulkAddDialogOpen(true)}
+                            className="bg-muted hover:bg-muted/80 text-foreground"
+                        >
+                            <Package className="mr-2 h-4 w-4" />
+                            Bulk Add Stock
+                        </Button>
+                        <Button onClick={() => setAddDialogOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white">
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Add Product
+                        </Button>
+                    </div>
+                </div>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader className="bg-muted/30">
+                            <TableRow>
+                                <TableHead className="w-[80px] font-semibold">Image</TableHead>
+                                <TableHead className="font-semibold">Product Name</TableHead>
+                                <TableHead className="font-semibold">SKU</TableHead>
+                                <TableHead className="font-semibold">Manufacture Date</TableHead>
+                                <TableHead className="font-semibold">Location</TableHead>
+                                <TableHead className="font-semibold">Quantity</TableHead>
+                                <TableHead className="font-semibold">Cost</TableHead>
+                                <TableHead className="font-semibold">Retail Price</TableHead>
+                                <TableHead>
+                                    <span className="sr-only">Actions</span>
+                                </TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {paginatedProducts.map((product) => (
+                                <TableRow key={product.id} className="hover:bg-muted/50 transition-colors">
+                                    <TableCell>
+                                        <div className="h-12 w-12 overflow-hidden rounded-xl border-2 border-white/10 bg-muted/50 transition-all duration-300 hover:scale-110 hover:shadow-xl hover:border-pink-500/50 cursor-pointer group">
+                                            {product.image ? (
+                                                <img
+                                                    src={product.image}
+                                                    alt={product.productName}
+                                                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                                />
+                                            ) : (
+                                                <div className="flex h-full w-full items-center justify-center">
+                                                    <Package className="h-8 w-8 text-muted-foreground/50" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell className="font-medium">
+                                        {product.productName}
+                                    </TableCell>
+                                    <TableCell>{product.sku}</TableCell>
+                                    <TableCell>
+                                        {product.manufacture_date ? new Date(product.manufacture_date).toLocaleDateString() : "—"}
+                                    </TableCell>
+                                    <TableCell>{product.location || "—"}</TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2">
+                                            <span className={product.alertStock && product.quantity <= product.alertStock ? "text-red-600 font-bold" : ""}>
+                                                {product.quantity}
+                                            </span>
+                                            {product.alertStock && product.quantity <= product.alertStock && (
+                                                <AlertTriangle className="h-4 w-4 text-red-600" />
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>₱{product.cost.toFixed(2)}</TableCell>
+                                    <TableCell>
+                                        {product.retailPrice ? `₱${product.retailPrice.toFixed(2)}` : "—"}
+                                    </TableCell>
+                                    <TableCell>
+                                        <AlertDialog>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button aria-haspopup="true" size="icon" variant="ghost">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                        <span className="sr-only">Toggle menu</span>
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => setViewingProduct(product)}>
+                                                        View Details
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => setEditingProduct(product)}>
+                                                        Edit
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => setStockAdjustment({ isOpen: true, product, mode: "add" })}>
+                                                        <Plus className="mr-2 h-4 w-4" />
+                                                        Add Stock
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => setStockAdjustment({ isOpen: true, product, mode: "deduct" })}>
+                                                        <Minus className="mr-2 h-4 w-4" />
+                                                        Deduct Stock
+                                                    </DropdownMenuItem>
+                                                    <AlertDialogTrigger asChild>
+                                                        <DropdownMenuItem className="text-red-600">Delete</DropdownMenuItem>
+                                                    </AlertDialogTrigger>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        This action cannot be undone. This will permanently delete the product
+                                                        from the warehouse.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction
+                                                        onClick={() => handleDelete(String(product.id))}
+                                                        className="bg-destructive hover:bg-destructive/90"
+                                                    >
+                                                        Delete
+                                                    </AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                    {paginatedProducts.length === 0 && (
+                        <div className="text-center p-8 text-muted-foreground">
+                            No products found.
+                        </div>
+                    )}
+                </CardContent>
+                <div className="flex items-center justify-between gap-4 p-4 border-t">
+                    <div className="text-sm text-muted-foreground">
+                        Page {currentPage} of {totalPages || 1}
+                    </div>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                        >
+                            Previous
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={currentPage === totalPages}
+                        >
+                            Next
+                        </Button>
+                    </div>
+                </div>
+            </Card>
+
+            <AddWarehouseDialog
+                isOpen={isAddDialogOpen}
+                onClose={() => setAddDialogOpen(false)}
+                onSuccess={refreshProducts}
+            />
+            {editingProduct && (
+                <EditWarehouseDialog
+                    isOpen={!!editingProduct}
+                    onClose={() => setEditingProduct(null)}
+                    product={editingProduct}
+                    onSuccess={refreshProducts}
+                />
+            )}
+            {viewingProduct && (
+                <ViewWarehouseDialog
+                    isOpen={!!viewingProduct}
+                    onClose={() => setViewingProduct(null)}
+                    product={viewingProduct}
+                />
+            )}
+            {stockAdjustment.isOpen && stockAdjustment.product && (
+                <StockAdjustmentDialog
+                    isOpen={stockAdjustment.isOpen}
+                    onClose={() => setStockAdjustment({ ...stockAdjustment, isOpen: false })}
+                    product={stockAdjustment.product}
+                    mode={stockAdjustment.mode}
+                    onSuccess={refreshProducts}
+                />
+            )}
+            <BulkAddStockDialog
+                isOpen={isBulkAddDialogOpen}
+                onClose={() => setIsBulkAddDialogOpen(false)}
+                products={products}
+                onSuccess={() => {
+                    refreshProducts();
+                }}
+            />
+        </>
+    );
+}
