@@ -130,6 +130,9 @@ export type Order = {
   orderDate: string;
   itemName: string; // Item Name / Description
   items?: OrderItem[];
+  paymentProofFileName?: string | null;
+  paymentProofMimeType?: string | null;
+  paymentProofDataUrl?: string | null;
   quantity: number;
   price: number; // Price per Item
   shippingFee: number;

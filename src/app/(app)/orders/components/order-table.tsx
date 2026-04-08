@@ -359,79 +359,86 @@ export default function OrderTable({ orders, customers, products, stations, batc
             <TableBody>
               {paginatedOrders.map((order) => (
                 <TableRow key={order.id}>
-                  <TableCell className="font-medium">{String(order.id).substring(0, 7)}...</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span>{order.customerName}</span>
-                      {order.batch && (
-                        <div className="text-[10px] text-zinc-500 flex items-center gap-1 mt-0.5">
-                          <CalendarIcon className="h-2.5 w-2.5" />
-                          {order.batch.batchName} ({format(new Date(order.batch.manufactureDate), 'MMM d')})
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={paymentStatusStyles[order.paymentStatus]}>
-                      {order.paymentStatus}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {order.customerName.toLowerCase() !== "walk in customer" && (
-                      <Badge variant="outline" className={shippingStatusStyles[order.shippingStatus]}>
-                        {order.shippingStatus}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">₱{order.totalAmount.toFixed(2)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1 justify-end">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button aria-haspopup="true" size="icon" variant="ghost">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Toggle menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setViewOrder(order)}>
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setSelectedOrder(order)}
-                            disabled={order.shippingStatus === 'Delivered'}
-                          >
-                            Edit Order
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleMarkAsReceived(order)}
-                            disabled={isUpdating === order.id || order.shippingStatus === 'Delivered' || order.shippingStatus === 'Cancelled'}
-                          >
-                            Mark as Received
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => openCancelDialog(order)}
-                            disabled={isUpdating === order.id || order.shippingStatus === 'Cancelled' || order.shippingStatus === 'Delivered'}
-                            className="text-red-600 focus:text-red-600"
-                          >
-                            Cancel Order
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => {
-                          setOrderForSms(order);
-                          setSmsDialogOpen(true);
-                        }}
-                        title="Send SMS"
-                      >
-                        <MessageCircle className="h-4 w-4" />
-                        <span className="sr-only">Send SMS</span>
-                      </Button>
-                    </div>
-                  </TableCell>
+                  {(() => {
+                    const isLocked = order.paymentStatus === 'Paid' && order.shippingStatus === 'Delivered';
+                    return (
+                      <>
+                        <TableCell className="font-medium">{String(order.id).substring(0, 7)}...</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span>{order.customerName}</span>
+                            {order.batch && (
+                              <div className="text-[10px] text-zinc-500 flex items-center gap-1 mt-0.5">
+                                <CalendarIcon className="h-2.5 w-2.5" />
+                                {order.batch.batchName} ({format(new Date(order.batch.manufactureDate), 'MMM d')})
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={paymentStatusStyles[order.paymentStatus]}>
+                            {order.paymentStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {order.customerName.toLowerCase() !== "walk in customer" && (
+                            <Badge variant="outline" className={shippingStatusStyles[order.shippingStatus]}>
+                              {order.shippingStatus}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">₱{order.totalAmount.toFixed(2)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 justify-end">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button aria-haspopup="true" size="icon" variant="ghost">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">Toggle menu</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setViewOrder(order)}>
+                                  View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => setSelectedOrder(order)}
+                                  disabled={isLocked}
+                                >
+                                  Edit Order
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleMarkAsReceived(order)}
+                                  disabled={isUpdating === order.id || isLocked || order.shippingStatus === 'Cancelled'}
+                                >
+                                  Mark as Received
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => openCancelDialog(order)}
+                                  disabled={isUpdating === order.id || isLocked || order.shippingStatus === 'Cancelled'}
+                                  className="text-red-600 focus:text-red-600"
+                                >
+                                  Cancel Order
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                setOrderForSms(order);
+                                setSmsDialogOpen(true);
+                              }}
+                              title="Send SMS"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                              <span className="sr-only">Send SMS</span>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </>
+                    );
+                  })()}
                 </TableRow>
               ))}
             </TableBody>
@@ -482,6 +489,14 @@ export default function OrderTable({ orders, customers, products, stations, batc
         isOpen={!!viewOrder}
         onClose={() => setViewOrder(null)}
         order={viewOrder}
+        onPaymentStatusUpdated={async (orderId, newPaymentStatus) => {
+          setLocalOrders((prev) =>
+            prev.map((o) =>
+              String(o.id) === String(orderId) ? { ...o, paymentStatus: newPaymentStatus } : o
+            )
+          );
+          if (onRefresh) await onRefresh();
+        }}
       />
 
       <CreateOrderDialog

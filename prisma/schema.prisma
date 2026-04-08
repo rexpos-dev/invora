@@ -39,6 +39,9 @@ model Order {
   orderDate      DateTime?
   itemName       String
   items          Json?
+  paymentProofFileName  String?
+  paymentProofMimeType  String?
+  paymentProofDataUrl   String?      @db.LongText
   quantity       Int
   price          Float
   shippingFee    Float

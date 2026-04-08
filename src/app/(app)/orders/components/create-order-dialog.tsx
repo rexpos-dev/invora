@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +79,16 @@ export function CreateOrderDialog({
   const [isPickup, setIsPickup] = useState(false);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
 
+  // Optional proof of payment uploader (stored inside `order.items` JSON to avoid DB migration)
+  const paymentProofInputRef = useRef<HTMLInputElement>(null);
+  const [isReadingPaymentProof, setIsReadingPaymentProof] = useState(false);
+  const [paymentProofPreviewUrl, setPaymentProofPreviewUrl] = useState<string | null>(null);
+  const [paymentProof, setPaymentProof] = useState<{
+    fileName: string;
+    mimeType: string;
+    dataUrl: string;
+  } | null>(null);
+
   const [comboboxOpen, setComboboxOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [totalAmount, setTotalAmount] = useState(0);
@@ -99,6 +109,11 @@ export function CreateOrderDialog({
   }, [customerName]);
 
   const resetForm = () => {
+    if (paymentProofPreviewUrl) URL.revokeObjectURL(paymentProofPreviewUrl);
+    setPaymentProofPreviewUrl(null);
+    setPaymentProof(null);
+    setIsReadingPaymentProof(false);
+    if (paymentProofInputRef.current) paymentProofInputRef.current.value = "";
     setCustomerName("Walk In Customer");
     setContactNumber("");
     setAddress("");
@@ -117,6 +132,55 @@ export function CreateOrderDialog({
     setSelectedStationId(null);
     setLastCreatedOrder(null);
     setIsSubmitting(false);
+  };
+
+  const handlePaymentProofChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      if (paymentProofPreviewUrl) URL.revokeObjectURL(paymentProofPreviewUrl);
+      setPaymentProofPreviewUrl(null);
+      setPaymentProof(null);
+      return;
+    }
+
+    // Revoke previous preview (if any)
+    if (paymentProofPreviewUrl) URL.revokeObjectURL(paymentProofPreviewUrl);
+
+    const previewUrl = URL.createObjectURL(file);
+    setPaymentProofPreviewUrl(previewUrl);
+    setIsReadingPaymentProof(true);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        toast({
+          variant: "destructive",
+          title: "Upload Error",
+          description: "Failed to read the selected file.",
+        });
+        setPaymentProof(null);
+        setIsReadingPaymentProof(false);
+        return;
+      }
+
+      setPaymentProof({
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        dataUrl,
+      });
+      setIsReadingPaymentProof(false);
+    };
+    reader.onerror = () => {
+      toast({
+        variant: "destructive",
+        title: "Upload Error",
+        description: "Failed to read the selected file.",
+      });
+      setPaymentProof(null);
+      setIsReadingPaymentProof(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   const copyInvoice = () => {
@@ -194,11 +258,11 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
   };
 
   const handleSave = async () => {
-    if (!customerName || selectedItems.length === 0) {
+    if (!customerName || selectedItems.length === 0 || !paymentProof) {
       toast({
         variant: "destructive",
         title: "Missing Information",
-        description: "Please select a customer and at least one item.",
+        description: "Please select a customer, at least one item, and upload a proof of payment.",
       });
       return;
     }
@@ -234,6 +298,11 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
 
       const combinedItemName = selectedItems.map(item => `${item.product.name} (x${item.quantity})`).join(', ');
 
+      const itemsForOrder = selectedItems.map(item => ({
+        product: item.product,
+        quantity: typeof item.quantity === 'string' ? 0 : item.quantity
+      }));
+
       const orderData: Omit<Order, 'id' | 'createdAt'> = {
         customerId: finalCustomerId!,
         customerName: customerName,
@@ -255,10 +324,10 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
         remarks,
         rushShip,
         createdBy: { uid: 'user-id', name: 'Current User' },
-        items: selectedItems.map(item => ({
-          product: item.product,
-          quantity: typeof item.quantity === 'string' ? 0 : item.quantity
-        })),
+        items: itemsForOrder,
+        paymentProofFileName: paymentProof?.fileName ?? null,
+        paymentProofMimeType: paymentProof?.mimeType ?? null,
+        paymentProofDataUrl: paymentProof?.dataUrl ?? null,
       };
 
       const result = await createOrder(orderData);
@@ -329,7 +398,11 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
   return (
     <>
       <Dialog open={isOpen} onOpenChange={handleClose}>
-        <DialogContent className="sm:max-w-4xl max-h-[95vh] flex flex-col p-0 overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/30">
+        <DialogContent
+          className="sm:max-w-4xl max-h-[95vh] flex flex-col p-0 overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/30"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           {/* Header with gradient */}
           <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-600 opacity-90" />
@@ -714,13 +787,14 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
                           Assign Batch
                         </Label>
                         <Select
-                          value={batchId && batchId !== 'hold' && batchId !== 'none' ? batchId : ''}
+                          value={batchId && batchId !== 'hold' ? batchId : 'none'}
                           onValueChange={(value: string) => setBatchId(String(value))}
                         >
                           <SelectTrigger className="h-11 border-2">
                             <SelectValue placeholder="Select batch" />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="none">No batch (Optional)</SelectItem>
                             {batches && batches.filter(b => b.status === "Open").map(b => (
                               <SelectItem key={b.id} value={String(b.id)}>
                                 {b.batchName} ({format(new Date(b.manufactureDate), 'MMM d')})
@@ -898,6 +972,50 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
                         </div>
                       )}
                     </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-slate-500" />
+                        Upload Proof of Payment <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        ref={paymentProofInputRef}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={handlePaymentProofChange}
+                        disabled={isSubmitting || isReadingPaymentProof}
+                        className="h-11 border-2 focus:border-blue-400"
+                      />
+
+                      {paymentProofPreviewUrl && paymentProof && paymentProof.mimeType.startsWith("image/") && (
+                        <img
+                          src={paymentProofPreviewUrl}
+                          alt="Payment proof preview"
+                          className="max-h-40 w-auto rounded-md border border-slate-200"
+                        />
+                      )}
+
+                      {paymentProof && !paymentProof.mimeType.startsWith("image/") && (
+                        <div className="text-sm text-slate-600">
+                          Selected:{" "}
+                          <span className="font-medium break-all">{paymentProof.fileName}</span>
+                          {paymentProof.mimeType.includes("pdf") && (
+                            <a
+                              href={paymentProofPreviewUrl || "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="ml-2 text-blue-600 hover:underline"
+                            >
+                              View
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {isReadingPaymentProof && (
+                        <p className="text-xs text-muted-foreground">Reading file...</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -918,7 +1036,7 @@ Total Amount: ₱${lastCreatedOrder.totalAmount.toFixed(2)}
                 <Button
                   onClick={handleSave}
                   className="flex-1 h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg font-semibold"
-                  disabled={isSubmitting || selectedItems.length === 0}
+                  disabled={isSubmitting || isReadingPaymentProof || selectedItems.length === 0}
                 >
                   {isSubmitting ? "Creating..." : "Create Order"}
                 </Button>

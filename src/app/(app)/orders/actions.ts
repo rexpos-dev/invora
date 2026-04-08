@@ -59,6 +59,9 @@ export async function getOrders(): Promise<Order[]> {
     trackingNumber: order.trackingNumber || "",
     remarks: ((order.remarks || "") as OrderRemark),
     rushShip: order.rushShip,
+    paymentProofFileName: order.paymentProofFileName,
+    paymentProofMimeType: order.paymentProofMimeType,
+    paymentProofDataUrl: order.paymentProofDataUrl,
     batch: order.batch ? {
       ...order.batch,
       manufactureDate: (order.batch as any).manufactureDate.toISOString(),
@@ -121,6 +124,9 @@ export async function getAllOrders(): Promise<{ orders: Order[], isAuthorized: b
     trackingNumber: order.trackingNumber || "",
     remarks: ((order.remarks || "") as OrderRemark),
     rushShip: order.rushShip,
+    paymentProofFileName: order.paymentProofFileName,
+    paymentProofMimeType: order.paymentProofMimeType,
+    paymentProofDataUrl: order.paymentProofDataUrl,
     batch: order.batch ? {
       ...order.batch,
       manufactureDate: (order.batch as any).manufactureDate.toISOString(),
@@ -158,6 +164,9 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'> & {
           orderDate: orderData.orderDate ? new Date(orderData.orderDate) : null,
           itemName: orderData.itemName,
           items: orderData.items ? JSON.stringify(orderData.items) : undefined,
+          paymentProofFileName: orderData.paymentProofFileName || null,
+          paymentProofMimeType: orderData.paymentProofMimeType || null,
+          paymentProofDataUrl: orderData.paymentProofDataUrl || null,
           quantity: orderData.quantity,
           price: orderData.price,
           shippingFee: orderData.shippingFee,
@@ -466,6 +475,9 @@ export async function updateOrder(id: string | number, data: Partial<Order>): Pr
           rushShip: data.rushShip,
           createdBy: data.createdBy as any,
           items: data.items ? JSON.stringify(data.items) : undefined,
+          paymentProofFileName: data.paymentProofFileName,
+          paymentProofMimeType: data.paymentProofMimeType,
+          paymentProofDataUrl: data.paymentProofDataUrl,
         },
       });
 
@@ -536,10 +548,44 @@ export async function updateOrder(id: string | number, data: Partial<Order>): Pr
       trackingNumber: updatedOrderResult.trackingNumber || "",
       remarks: (updatedOrderResult.remarks as OrderRemark) || "",
       rushShip: updatedOrderResult.rushShip,
+      paymentProofFileName: updatedOrderResult.paymentProofFileName,
+      paymentProofMimeType: updatedOrderResult.paymentProofMimeType,
+      paymentProofDataUrl: updatedOrderResult.paymentProofDataUrl,
     };
   } catch (error: any) {
     console.error("Error in updateOrder:", error);
     throw new Error(error.message || "Failed to update order.");
+  }
+}
+
+export async function updateOrderPaymentStatus(orderId: string | number, paymentStatus: PaymentStatus): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error("Authentication required");
+
+    const formattedRole = user.role?.name?.toLowerCase() || "";
+    const isAuthorized = formattedRole === "super admin" || formattedRole === "superadmin" || formattedRole === "admin";
+    if (!isAuthorized) throw new Error("Permission denied");
+
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: Number(orderId) },
+        data: { paymentStatus },
+      });
+
+      await tx.salesLog.create({
+        data: {
+          orderId: Number(orderId),
+          description: `Payment status updated to ${paymentStatus}`,
+        },
+      });
+    });
+
+    revalidatePath("/orders");
+    revalidatePath("/dashboard");
+  } catch (error: any) {
+    console.error("Error in updateOrderPaymentStatus:", error);
+    throw new Error(error.message || "Failed to update payment status.");
   }
 }
 

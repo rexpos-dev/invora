@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef, type ChangeEvent } from "react";
 import {
   Dialog,
   DialogContent,
@@ -87,6 +87,16 @@ export function EditOrderDialog({
   const [totalAmount, setTotalAmount] = useState(0);
   const [isProductSelectOpen, setProductSelectOpen] = useState(false);
 
+  // Payment Proof State
+  const paymentProofInputRef = useRef<HTMLInputElement>(null);
+  const [isReadingPaymentProof, setIsReadingPaymentProof] = useState(false);
+  const [paymentProofPreviewUrl, setPaymentProofPreviewUrl] = useState<string | null>(null);
+  const [paymentProof, setPaymentProof] = useState<{
+    fileName: string | null;
+    mimeType: string | null;
+    dataUrl: string | null;
+  }>({ fileName: null, mimeType: null, dataUrl: null });
+
   // AI Suggestion State
   const [suggestion, setSuggestion] = useState<{ suggestedStatus: string; reasoning: string } | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -139,6 +149,15 @@ export function EditOrderDialog({
       setTrackingNumber(order.trackingNumber || "");
       setRemarks(order.remarks || '');
       setRushShip(order.rushShip);
+
+      // Load payment proof
+      setPaymentProof({
+        fileName: order.paymentProofFileName || null,
+        mimeType: order.paymentProofMimeType || null,
+        dataUrl: order.paymentProofDataUrl || null,
+      });
+      setPaymentProofPreviewUrl(order.paymentProofDataUrl || null);
+
       // Logic to determine pickup vs delivery based on maybe courierName or absence of it? 
       // Or just default to false unless we persist it. 
       // For now reset to false to be safe unless we strictly track station ID in order
@@ -191,14 +210,55 @@ export function EditOrderDialog({
     ));
   };
 
+  const handlePaymentProofChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setPaymentProofPreviewUrl(previewUrl);
+    setIsReadingPaymentProof(true);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        toast({
+          variant: "destructive",
+          title: "Upload Error",
+          description: "Failed to read the selected file.",
+        });
+        setIsReadingPaymentProof(false);
+        return;
+      }
+
+      setPaymentProof({
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        dataUrl,
+      });
+      setIsReadingPaymentProof(false);
+    };
+    reader.onerror = () => {
+      toast({
+        variant: "destructive",
+        title: "Upload Error",
+        description: "Failed to read the selected file.",
+      });
+      setIsReadingPaymentProof(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
 
   const handleSave = async () => {
     if (!order) return;
-    if (!customerName || selectedItems.length === 0) {
+    if (!customerName || selectedItems.length === 0 || !paymentProof.dataUrl) {
       toast({
         variant: "destructive",
         title: "Missing Information",
-        description: "Please select a customer and at least one item.",
+        description: "Please select a customer, at least one item, and upload a proof of payment.",
       });
       return;
     }
@@ -261,6 +321,9 @@ export function EditOrderDialog({
         trackingNumber,
         remarks,
         rushShip,
+        paymentProofFileName: paymentProof.fileName,
+        paymentProofMimeType: paymentProof.mimeType,
+        paymentProofDataUrl: paymentProof.dataUrl,
         // Pass items so backend can sync (if backend supports it)
         // @ts-ignore
         items: selectedItems.map(item => ({
@@ -683,6 +746,66 @@ export function EditOrderDialog({
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t">
+                    <Label className="text-sm font-semibold flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-blue-500" />
+                      Proof of Payment <span className="text-red-500">*</span>
+                    </Label>
+                    <div className="flex flex-col gap-4">
+                      {paymentProofPreviewUrl ? (
+                        <div className="relative w-full max-w-sm aspect-video rounded-xl overflow-hidden border-2 border-slate-200 group">
+                          <img
+                            src={paymentProofPreviewUrl}
+                            alt="Payment Proof"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => window.open(paymentProofPreviewUrl, '_blank')}
+                            >
+                              View Full
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                setPaymentProofPreviewUrl(null);
+                                setPaymentProof({ fileName: null, mimeType: null, dataUrl: null });
+                                if (paymentProofInputRef.current) paymentProofInputRef.current.value = "";
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors"
+                          onClick={() => paymentProofInputRef.current?.click()}
+                        >
+                          <ImageIcon className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                          <p className="text-sm font-medium text-slate-600">Click to upload payment proof</p>
+                          <p className="text-xs text-slate-400 mt-1">Image or PDF (Max 5MB)</p>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        ref={paymentProofInputRef}
+                        onChange={handlePaymentProofChange}
+                        accept="image/*,application/pdf"
+                        className="hidden"
+                      />
+                      {isReadingPaymentProof && (
+                        <div className="flex items-center gap-2 text-sm text-blue-600 animate-pulse">
+                          <Loader className="h-4 h-4 animate-spin" />
+                          Reading file...
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
