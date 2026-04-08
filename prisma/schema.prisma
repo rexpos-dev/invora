@@ -64,8 +64,8 @@ model Order {
   customer       Customer       @relation(fields: [customerId], references: [id])
   salesLogs      SalesLog[]
 
-  @@index([batchId], map: "orders_batchId_fkey")
-  @@index([customerId], map: "orders_customerId_fkey")
+  @@index([batchId])
+  @@index([customerId])
   @@index([createdAt])
   @@index([orderDate])
   @@map("orders")
@@ -143,10 +143,10 @@ model Product {
   warehouseProduct WarehouseProduct? @relation(fields: [warehouseId], references: [id])
   branch           Branch?           @relation(fields: [branchId], references: [id])
 
-  @@index([warehouseId], map: "products_warehouseId_fkey")
-  @@index([batchId], map: "products_batchId_fkey")
-  @@index([categoryId], map: "products_categoryId_fkey")
-  @@index([branchId], map: "products_branchId_fkey")
+  @@index([warehouseId])
+  @@index([batchId])
+  @@index([categoryId])
+  @@index([branchId])
   @@index([createdAt])
   @@map("products")
 }
@@ -171,8 +171,8 @@ model User {
   branch           Branch?        @relation(fields: [branchId], references: [id])
   role_rel         Role?          @relation("UserRole", fields: [roleId], references: [id])
 
-  @@index([branchId], map: "users_branchId_fkey")
-  @@index([roleId], map: "users_roleId_fkey")
+  @@index([branchId])
+  @@index([roleId])
   @@map("users")
 }
 
@@ -261,9 +261,9 @@ model WarehouseProduct {
   batch            Batch?           @relation(fields: [batchId], references: [id])
   category         ProductCategory? @relation(fields: [categoryId], references: [id])
 
-  @@index([batchId], map: "warehouse_products_batchId_fkey")
-  @@index([productId], map: "warehouse_products_productId_fkey")
-  @@index([categoryId], map: "warehouse_products_categoryId_fkey")
+  @@index([batchId])
+  @@index([productId])
+  @@index([categoryId])
   @@map("warehouse_products")
 }
 
@@ -344,9 +344,9 @@ model PreOrder {
   product       Product?       @relation(fields: [productId], references: [id])
   salesLogs     SalesLog[]
 
-  @@index([customerId], map: "pre_orders_customerId_fkey")
-  @@index([batchId], map: "pre_orders_batchId_fkey")
-  @@index([productId], map: "pre_orders_productId_fkey")
+  @@index([customerId])
+  @@index([batchId])
+  @@index([productId])
   @@index([createdAt])
   @@index([orderDate])
   @@map("pre_orders")
@@ -364,7 +364,7 @@ model PreOrderItem {
   preOrderId   Int
   preOrder     PreOrder @relation(fields: [preOrderId], references: [id], onDelete: Cascade)
 
-  @@index([preOrderId], map: "pre_order_items_preOrderId_fkey")
+  @@index([preOrderId])
   @@map("pre_order_items")
 }
 
