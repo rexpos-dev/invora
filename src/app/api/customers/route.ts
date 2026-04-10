@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCustomers, createCustomer } from '@/app/(app)/customers/actions';
+import { unstable_noStore as noStore } from 'next/cache';
 
 // GET /api/customers - Get all customers
 export async function GET() {
+  noStore();
   try {
     const customers = await getCustomers();
     return NextResponse.json({ success: true, data: customers });
