@@ -143,29 +143,20 @@ export async function updateBodegaProduct(id: string | number, productData: Part
             throw new Error('Product not found');
         }
 
-        // Use raw query for update to handle potential batchId validation issues
-        const updates = [];
-        const values = [];
-
-        if (productData.name !== undefined) { updates.push("name = ?"); values.push(productData.name); }
-        if (productData.sku !== undefined) { updates.push("sku = ?"); values.push(productData.sku); }
-        if (productData.description !== undefined) { updates.push("description = ?"); values.push(productData.description); }
-        if (productData.quantity !== undefined) { updates.push("quantity = ?"); values.push(productData.quantity); }
-        if (productData.alertStock !== undefined) { updates.push("alertStock = ?"); values.push(productData.alertStock); }
-        if (productData.cost !== undefined) { updates.push("cost = ?"); values.push(productData.cost); }
-        if (productData.retailPrice !== undefined) { updates.push("retailPrice = ?"); values.push(productData.retailPrice); }
-        if (productData.images !== undefined) { updates.push("images = ?"); values.push(JSON.stringify(productData.images)); }
-
-
-        updates.push("updatedAt = NOW(3)");
-
-        if (updates.length > 0) {
-            const sql = `UPDATE products SET ${updates.join(", ")} WHERE id = ?`;
-            values.push(Number(id));
-            await prisma.$executeRawUnsafe(sql, ...values);
-        }
-
-        const updatedProduct = await prisma.product.findUnique({ where: { id: Number(id) as any } });
+        // Use Prisma Client for update instead of raw SQL
+        const updatedProduct = await prisma.product.update({
+            where: { id: Number(id) },
+            data: {
+                name: productData.name,
+                sku: productData.sku,
+                description: productData.description,
+                quantity: productData.quantity,
+                alertStock: productData.alertStock,
+                cost: productData.cost,
+                retailPrice: productData.retailPrice,
+                images: productData.images ? JSON.parse(JSON.stringify(productData.images)) : undefined,
+            } as any
+        });
 
         if (!updatedProduct) throw new Error("Failed to retrieve updated product");
 

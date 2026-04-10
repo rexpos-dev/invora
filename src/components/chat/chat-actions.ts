@@ -186,12 +186,10 @@ export async function transferStock(
         };
 
         const result = await prisma.$transaction(async (tx) => {
-            // 1. Get warehouse product
-            const warehouseProducts: any[] = await tx.$queryRawUnsafe(
-                `SELECT * FROM warehouse_products WHERE id = ? LIMIT 1`,
-                warehouseProductId
-            );
-            const warehouseProduct = warehouseProducts[0];
+            // 1. Get warehouse product using Prisma Client
+            const warehouseProduct = await tx.warehouseProduct.findUnique({
+                where: { id: parseInt(warehouseProductId, 10) }
+            });
 
             if (!warehouseProduct) {
                 console.error("[transferStock] Warehouse product not found:", warehouseProductId);
@@ -207,42 +205,31 @@ export async function transferStock(
             }
 
             // Check if product exists in inventory by SKU AND createdBy uid (to match branch)
-            // Fix: Use JSON_UNQUOTE to handle string/number mismatches in JSON
+            // Fix: Use Postgres-compatible JSON filtering (->>)
             const skuToFind = warehouseProduct.sku.trim();
-            const inventoryProducts: any[] = await tx.$queryRawUnsafe(
-                `SELECT * FROM products WHERE sku = ? AND JSON_UNQUOTE(JSON_EXTRACT(createdBy, '$.uid')) = ? LIMIT 1`,
-                skuToFind,
-                String(creator.id)
-            );
+            const inventoryProducts: any[] = await tx.$queryRaw`
+                SELECT * FROM products 
+                WHERE sku = ${skuToFind} 
+                  AND "createdBy"->>'uid' = ${String(creator.id)} 
+                LIMIT 1
+            `;
             const inventoryProduct = inventoryProducts[0];
 
             let productId = '';
             if (inventoryProduct) {
-                productId = inventoryProduct.id;
+                productId = String(inventoryProduct.id);
                 console.log(`[transferStock] Updating existing product for ${creator.name}: ${productId}`);
-                // Update existing product quantity and sync missing details
 
-                let updateQuery = `UPDATE products SET quantity = quantity + ?, updatedAt = NOW(3)`;
-                const updateParams: any[] = [transferQty];
-
-                if (!inventoryProduct.categoryId && warehouseProduct.categoryId) {
-                    updateQuery += `, categoryId = ?`;
-                    updateParams.push(warehouseProduct.categoryId);
-                }
-                if (!inventoryProduct.cost && warehouseProduct.cost) {
-                    updateQuery += `, cost = ?`;
-                    updateParams.push(warehouseProduct.cost);
-                }
-                if (!inventoryProduct.retailPrice && warehouseProduct.retailPrice) {
-                    updateQuery += `, retailPrice = ?`;
-                    updateParams.push(warehouseProduct.retailPrice);
-                }
-
-                // Append the WHERE clause
-                updateQuery += ` WHERE id = ?`;
-                updateParams.push(productId);
-
-                await tx.$executeRawUnsafe(updateQuery, ...updateParams);
+                // Update existing product quantity and sync missing details using Prisma Client
+                await tx.product.update({
+                    where: { id: inventoryProduct.id },
+                    data: {
+                        quantity: { increment: transferQty },
+                        categoryId: (!inventoryProduct.categoryId && warehouseProduct.categoryId) ? warehouseProduct.categoryId : undefined,
+                        cost: (!inventoryProduct.cost && warehouseProduct.cost) ? warehouseProduct.cost : undefined,
+                        retailPrice: (!inventoryProduct.retailPrice && warehouseProduct.retailPrice) ? warehouseProduct.retailPrice : undefined,
+                    }
+                });
             } else {
                 let images = [];
                 if (warehouseProduct.image) {
@@ -279,20 +266,21 @@ export async function transferStock(
             }
 
             // 2.5 Log inventory change
-            // We find the branchId of the target user if possible, or fall back to current user's branch
-            // For simplicity, we'll try to get the branchId from the target user's context in the future,
-            // but for now we'll use a raw query to find their branchId.
-            const targetUserData: any[] = await tx.$queryRawUnsafe(`SELECT branchId FROM users WHERE id = ? LIMIT 1`, creator.id);
-            const branchId = targetUserData[0]?.branchId || currentUser.branchId;
+            // Find target user branch using Prisma Client
+            const targetUserResult = await tx.user.findUnique({
+                where: { id: parseInt(creator.id, 10) },
+                select: { branchId: true }
+            });
+            const branchId = targetUserResult?.branchId || currentUser.branchId;
 
             await createInventoryLog({
                 action: "TRANSFER",
-                productId: productId,
+                productId: String(productId),
                 quantityChange: transferQty,
                 previousStock: inventoryProduct ? (inventoryProduct as any).quantity : 0,
                 newStock: (inventoryProduct ? (inventoryProduct as any).quantity : 0) + transferQty,
                 reason: `Transferred from Warehouse to ${creator.name}`,
-                referenceId: productId,
+                referenceId: String(productId),
                 branchId: branchId || null,
             }, tx, currentUser);
 
@@ -318,13 +306,14 @@ export async function transferStock(
             console.log(`[transferStock] New warehouse quantity: ${newQuantity}`);
 
             if (newQuantity <= 0) {
-                await tx.$executeRawUnsafe(`DELETE FROM warehouse_products WHERE id = ?`, warehouseProductId);
+                await tx.warehouseProduct.delete({
+                    where: { id: warehouseProduct.id }
+                });
             } else {
-                await tx.$executeRawUnsafe(
-                    `UPDATE warehouse_products SET quantity = ? WHERE id = ?`,
-                    newQuantity,
-                    warehouseProductId
-                );
+                await tx.warehouseProduct.update({
+                    where: { id: warehouseProduct.id },
+                    data: { quantity: newQuantity }
+                });
             }
 
             return { success: true };
@@ -362,16 +351,17 @@ export async function bulkTransferStock(
         };
 
         await prisma.$transaction(async (tx) => {
-            // Find target user branch
-            const targetUserData: any[] = await tx.$queryRawUnsafe(`SELECT branchId FROM users WHERE id = ? LIMIT 1`, creator.id);
-            const branchId = targetUserData[0]?.branchId || currentUser.branchId;
+            // Find target user branch using Prisma Client
+            const targetUserResult = await tx.user.findUnique({
+                where: { id: parseInt(creator.id, 10) },
+                select: { branchId: true }
+            });
+            const branchId = targetUserResult?.branchId || currentUser.branchId;
 
             for (const transfer of transfers) {
-                const warehouseProducts: any[] = await tx.$queryRawUnsafe(
-                    `SELECT * FROM warehouse_products WHERE id = ? LIMIT 1`,
-                    transfer.id
-                );
-                const warehouseProduct = warehouseProducts[0];
+                const warehouseProduct = await tx.warehouseProduct.findUnique({
+                    where: { id: parseInt(transfer.id, 10) }
+                });
 
                 if (!warehouseProduct) continue;
 
@@ -385,38 +375,29 @@ export async function bulkTransferStock(
                 console.log(`[bulkTransferStock] Transferring (${transferQty}) for ${warehouseProduct.productName}`);
 
                 // Check if product exists in inventory by SKU and target User
+                // Use Postgres-compatible JSON filtering (->>)
                 const skuToFind = warehouseProduct.sku.trim();
-                const inventoryProducts: any[] = await tx.$queryRawUnsafe(
-                    `SELECT * FROM products WHERE sku = ? AND JSON_UNQUOTE(JSON_EXTRACT(createdBy, '$.uid')) = ? LIMIT 1`,
-                    skuToFind,
-                    String(creator.id)
-                );
+                const inventoryProducts: any[] = await tx.$queryRaw`
+                    SELECT * FROM products 
+                    WHERE sku = ${skuToFind} 
+                      AND "createdBy"->>'uid' = ${String(creator.id)} 
+                    LIMIT 1
+                `;
                 const inventoryProduct = inventoryProducts[0];
 
                 let targetProductId = '';
                 if (inventoryProduct) {
-                    targetProductId = inventoryProduct.id;
+                    targetProductId = String(inventoryProduct.id);
 
-                    let updateQuery = `UPDATE products SET quantity = quantity + ?, updatedAt = NOW(3)`;
-                    const updateParams: any[] = [transferQty];
-
-                    if (!inventoryProduct.categoryId && warehouseProduct.categoryId) {
-                        updateQuery += `, categoryId = ?`;
-                        updateParams.push(warehouseProduct.categoryId);
-                    }
-                    if (!inventoryProduct.cost && warehouseProduct.cost) {
-                        updateQuery += `, cost = ?`;
-                        updateParams.push(warehouseProduct.cost);
-                    }
-                    if (!inventoryProduct.retailPrice && warehouseProduct.retailPrice) {
-                        updateQuery += `, retailPrice = ?`;
-                        updateParams.push(warehouseProduct.retailPrice);
-                    }
-
-                    updateQuery += ` WHERE id = ?`;
-                    updateParams.push(targetProductId);
-
-                    await tx.$executeRawUnsafe(updateQuery, ...updateParams);
+                    await tx.product.update({
+                        where: { id: inventoryProduct.id },
+                        data: {
+                            quantity: { increment: transferQty },
+                            categoryId: (!inventoryProduct.categoryId && warehouseProduct.categoryId) ? warehouseProduct.categoryId : undefined,
+                            cost: (!inventoryProduct.cost && warehouseProduct.cost) ? warehouseProduct.cost : undefined,
+                            retailPrice: (!inventoryProduct.retailPrice && warehouseProduct.retailPrice) ? warehouseProduct.retailPrice : undefined,
+                        }
+                    });
                 } else {
                     let images = [];
                     if (warehouseProduct.image) {
@@ -453,12 +434,12 @@ export async function bulkTransferStock(
                 // Log inventory change
                 await createInventoryLog({
                     action: "TRANSFER",
-                    productId: targetProductId,
+                    productId: String(targetProductId),
                     quantityChange: transferQty,
                     previousStock: inventoryProduct ? (inventoryProduct as any).quantity : 0,
                     newStock: (inventoryProduct ? (inventoryProduct as any).quantity : 0) + transferQty,
                     reason: `Bulk Transferred from Warehouse to ${creator.name}`,
-                    referenceId: targetProductId,
+                    referenceId: String(targetProductId),
                     branchId: branchId || null,
                 }, tx, currentUser);
 
@@ -478,13 +459,14 @@ export async function bulkTransferStock(
 
                 const newQuantity = warehouseProduct.quantity - transferQty;
                 if (newQuantity <= 0) {
-                    await tx.$executeRawUnsafe(`DELETE FROM warehouse_products WHERE id = ?`, transfer.id);
+                    await tx.warehouseProduct.delete({
+                        where: { id: warehouseProduct.id }
+                    });
                 } else {
-                    await tx.$executeRawUnsafe(
-                        `UPDATE warehouse_products SET quantity = ? WHERE id = ?`,
-                        newQuantity,
-                        transfer.id
-                    );
+                    await tx.warehouseProduct.update({
+                        where: { id: warehouseProduct.id },
+                        data: { quantity: newQuantity }
+                    });
                 }
             }
         });
@@ -507,12 +489,13 @@ export async function getProductBySku(sku: string, targetUserId?: string) {
             userId = String(currentUser.id);
         }
 
-        // Use raw query to match branch-specific product ownership (createdBy.uid)
-        const products: any[] = await prisma.$queryRawUnsafe(
-            `SELECT * FROM products WHERE sku = ? AND JSON_UNQUOTE(JSON_EXTRACT(createdBy, '$.uid')) = ? LIMIT 1`,
-            sku.trim(),
-            String(userId)
-        );
+        // Use Postgres-compatible JSON filtering (->>)
+        const products: any[] = await prisma.$queryRaw`
+            SELECT * FROM products 
+            WHERE sku = ${sku.trim()} 
+              AND "createdBy"->>'uid' = ${String(userId)} 
+            LIMIT 1
+        `;
 
         return products[0] || null;
     } catch (error) {

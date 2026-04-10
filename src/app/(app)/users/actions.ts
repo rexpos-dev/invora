@@ -440,10 +440,11 @@ export async function deleteUser(id: string | number): Promise<{ success: boolea
 
     // Delete all transactions (orders) created by this user
     try {
-      // Use raw SQL to delete orders with JSON filtering
+      // Use Postgres-compatible JSON filtering (->>)
+      // createdBy ->> 'uid' gets the 'uid' field from the JSON object as text
       const deletedOrders = await prisma.$executeRaw`
         DELETE FROM orders 
-        WHERE JSON_EXTRACT(createdBy, '$.uid') = ${id}
+        WHERE "createdBy"->>'uid' = ${String(id)}
       `;
       console.log(`Deleted ${deletedOrders} orders for user ${id}`);
     } catch (dbError) {

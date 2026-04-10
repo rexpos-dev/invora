@@ -18,15 +18,6 @@ export async function getCustomers(): Promise<Customer[]> {
     }
   });
 
-  // RAW SQL FALLBACK: Since Prisma Client might be stale and not fetching the isActive column,
-  // we fetch it manually using a raw query.
-  const statuses = await prisma.$queryRaw<any[]>`SELECT id, isActive FROM customers`;
-  const statusMap = statuses.reduce((acc, curr) => {
-    // MySQL TINYINT(1) can come as number 0/1 or boolean true/false depending on driver
-    acc[curr.id] = curr.isActive;
-    return acc;
-  }, {} as Record<string, any>);
-
   // Filter: Show all customers EXCEPT "Walk In Customer" from other users
   const filteredCustomers = customers.filter(customer => {
     // Check if customer is "Walk In Customer" (case-insensitive)
@@ -71,7 +62,7 @@ export async function getCustomers(): Promise<Customer[]> {
       })),
     totalSpent: customer.totalSpent || 0,
     role: customer.role as UserRole | undefined,
-    isActive: statusMap[customer.id] === undefined ? true : Number(statusMap[customer.id]) !== 0,
+    isActive: customer.isActive,
   }));
 }
 
@@ -309,8 +300,11 @@ export async function toggleCustomerStatus(customerId: string | number, isActive
 
     console.log(`Toggling customer ${customerId} to ${isActive}`);
 
-    // Use raw SQL with template literals ($executeRaw)
-    await prisma.$executeRaw`UPDATE customers SET isActive = ${isActive ? 1 : 0} WHERE id = ${customerId}`;
+    // Use Prisma Client for Postgres compatibility
+    await prisma.customer.update({
+      where: { id: Number(customerId) },
+      data: { isActive }
+    });
 
     return true;
   } catch (error) {
@@ -334,9 +328,9 @@ export async function deleteCustomer(customerId: string | number): Promise<{ suc
     });
 
     if (orderCount > 0) {
-      return { 
-        success: false, 
-        message: "Cannot delete customer with existing orders. Consider deactivating instead." 
+      return {
+        success: false,
+        message: "Cannot delete customer with existing orders. Consider deactivating instead."
       };
     }
 
@@ -346,9 +340,9 @@ export async function deleteCustomer(customerId: string | number): Promise<{ suc
     });
 
     if (preOrderCount > 0) {
-      return { 
-        success: false, 
-        message: "Cannot delete customer with existing pre-orders. Consider deactivating instead." 
+      return {
+        success: false,
+        message: "Cannot delete customer with existing pre-orders. Consider deactivating instead."
       };
     }
 
@@ -359,9 +353,9 @@ export async function deleteCustomer(customerId: string | number): Promise<{ suc
     return { success: true, message: "Customer deleted successfully" };
   } catch (error: any) {
     console.error('Error in deleteCustomer:', error);
-    return { 
-      success: false, 
-      message: error.message || "Failed to delete customer" 
+    return {
+      success: false,
+      message: error.message || "Failed to delete customer"
     };
   }
 }

@@ -29,7 +29,7 @@ export async function getProducts(): Promise<Product[]> {
     }
 
     const whereClause: any = {};
-    
+
     // Filter by branch if not super admin
     if (!isSuperAdmin && user.branchId) {
       whereClause.branchId = user.branchId;
@@ -96,7 +96,7 @@ export async function getProducts(): Promise<Product[]> {
       `Error: ${error instanceof Error ? error.message : String(error)}\n` +
       `Stack: ${error instanceof Error ? error.stack : 'No stack'}\n` +
       `Prisma error: ${JSON.stringify(error, null, 2)}\n`;
-    
+
     try {
       fs.appendFileSync("c:\\Users\\Carlo Beulah\\Desktop\\thriftersfind\\error_debug.log", errorLog);
     } catch (e) {
@@ -158,7 +158,7 @@ export async function searchProducts(query: string): Promise<Product[]> {
 
     const roleName = user.role?.name?.toLowerCase() || "";
     const isSuperAdmin = roleName === "super admin";
-    
+
     const whereClause: any = {
       OR: [
         { name: { contains: query } },
@@ -350,9 +350,11 @@ export async function createProduct(productData: Omit<Product, 'id' | 'totalStoc
 
     const skuToUse = productData.sku.trim();
 
-    // Check if SKU already exists using raw query
-    const existingProducts: any[] = await prisma.$queryRaw`SELECT id FROM products WHERE sku = ${skuToUse} LIMIT 1`;
-    const existingProduct = existingProducts[0];
+    // Check if SKU already exists using Prisma Client
+    const existingProduct = await prisma.product.findFirst({
+      where: { sku: skuToUse },
+      select: { id: true }
+    });
 
     if (existingProduct) {
       throw new Error(`Product with SKU "${skuToUse}" already exists`);
@@ -428,8 +430,13 @@ export async function updateProduct(id: string, productData: Partial<Omit<Produc
     // If SKU is being updated, check if it already exists (but not for the current product)
     if (productData.sku) {
       const skuToUse = productData.sku.trim();
-      const existingProducts: any[] = await prisma.$queryRaw`SELECT id FROM products WHERE sku = ${skuToUse} AND id != ${id} LIMIT 1`;
-      const existingProduct = existingProducts[0];
+      const existingProduct = await prisma.product.findFirst({
+        where: {
+          sku: skuToUse,
+          id: { not: parseInt(id, 10) }
+        },
+        select: { id: true }
+      });
 
       if (existingProduct) {
         throw new Error(`Product with SKU "${skuToUse}" already exists`);
@@ -438,37 +445,30 @@ export async function updateProduct(id: string, productData: Partial<Omit<Produc
     }
 
     // Get current product to calculate new totalStock if quantity changes
-    const currentProducts: any[] = await prisma.$queryRaw`SELECT * FROM products WHERE id = ${id} LIMIT 1`;
-    const currentProduct = currentProducts[0];
+    const currentProduct = await prisma.product.findUnique({
+      where: { id: parseInt(id, 10) }
+    });
 
     if (!currentProduct) {
       throw new Error('Product not found');
     }
 
-    // Use raw query for update to handle potential batchId validation issues
-    const updates = [];
-    const values = [];
-
-    if (productData.name !== undefined) { updates.push("name = ?"); values.push(productData.name); }
-    if (productData.sku !== undefined) { updates.push("sku = ?"); values.push(productData.sku); }
-    if (productData.description !== undefined) { updates.push("description = ?"); values.push(productData.description); }
-    if (productData.quantity !== undefined) { updates.push("quantity = ?"); values.push(productData.quantity); }
-    if (productData.warehouseId !== undefined) { updates.push("warehouseId = ?"); values.push(productData.warehouseId); }
-    if (productData.alertStock !== undefined) { updates.push("alertStock = ?"); values.push(productData.alertStock); }
-    if (productData.cost !== undefined) { updates.push("cost = ?"); values.push(productData.cost); }
-    if (productData.retailPrice !== undefined) { updates.push("retailPrice = ?"); values.push(productData.retailPrice); }
-    if (productData.images !== undefined) { updates.push("images = ?"); values.push(JSON.stringify(productData.images)); }
-    if ((productData as any).categoryId !== undefined) { updates.push("categoryId = ?"); values.push((productData as any).categoryId || null); }
-
-    updates.push("updatedAt = NOW(3)");
-
-    if (updates.length > 0) {
-      const sql = `UPDATE products SET ${updates.join(", ")} WHERE id = ?`;
-      values.push(parseInt(id, 10));
-      await prisma.$executeRawUnsafe(sql, ...values);
-    }
-
-    const updatedProduct = await prisma.product.findUnique({ where: { id: parseInt(id, 10) as any } });
+    // Use Prisma Client for update instead of raw SQL
+    const updatedProduct = await prisma.product.update({
+      where: { id: parseInt(id, 10) },
+      data: {
+        name: productData.name,
+        sku: productData.sku,
+        description: productData.description,
+        quantity: productData.quantity,
+        warehouseId: productData.warehouseId ? parseInt(productData.warehouseId as any, 10) : undefined,
+        alertStock: productData.alertStock,
+        cost: productData.cost,
+        retailPrice: productData.retailPrice,
+        images: productData.images ? JSON.parse(JSON.stringify(productData.images)) : undefined,
+        categoryId: (productData as any).categoryId ? parseInt((productData as any).categoryId, 10) : undefined,
+      } as any
+    });
 
     if (!updatedProduct) throw new Error("Failed to retrieve updated product");
 
@@ -525,8 +525,9 @@ export async function deleteProduct(id: string): Promise<void> {
     }
 
     // 1. Get product details before deletion
-    const products: any[] = await prisma.$queryRaw`SELECT * FROM products WHERE id = ${id} LIMIT 1`;
-    const product = products[0];
+    const product = await prisma.product.findUnique({
+      where: { id: parseInt(id, 10) }
+    });
 
     if (!product) {
       // Already deleted or not found
@@ -534,27 +535,30 @@ export async function deleteProduct(id: string): Promise<void> {
     }
 
     // 2. Check if there's a linked warehouse product or match by SKU
-    const warehouseProducts: any[] = await prisma.$queryRaw`
-        SELECT * FROM warehouse_products 
-        WHERE productId = ${id} 
-           OR sku = ${product.sku} 
-        LIMIT 1
-    `;
-    const warehouseProduct = warehouseProducts[0];
+    const warehouseProduct = await prisma.warehouseProduct.findFirst({
+      where: {
+        OR: [
+          { productId: parseInt(id, 10) },
+          { sku: product.sku }
+        ]
+      }
+    });
 
     if (warehouseProduct) {
       // 3. Return stock to warehouse and clear the link since the product is deleted
-      await prisma.$executeRawUnsafe(
-        `UPDATE warehouse_products SET quantity = quantity + ?, productId = NULL, updatedAt = NOW(3) WHERE id = ?`,
-        product.quantity,
-        warehouseProduct.id
-      );
+      await prisma.warehouseProduct.update({
+        where: { id: warehouseProduct.id },
+        data: {
+          quantity: { increment: product.quantity },
+          productId: null
+        }
+      });
 
       // 4. Log the return
       await createInventoryLog({
         action: "RETURN_TO_WAREHOUSE",
         productId: id,
-        warehouseProductId: warehouseProduct.id,
+        warehouseProductId: String(warehouseProduct.id),
         quantityChange: -product.quantity, // Negative change for branch product
         previousStock: product.quantity,
         newStock: 0,
@@ -567,7 +571,7 @@ export async function deleteProduct(id: string): Promise<void> {
       // We create a log entry linked to warehouseProductId but no productId (since it's being deleted)
       await createInventoryLog({
         action: "STOCK_RETURN",
-        warehouseProductId: warehouseProduct.id,
+        warehouseProductId: String(warehouseProduct.id),
         quantityChange: product.quantity,
         previousStock: warehouseProduct.quantity,
         newStock: warehouseProduct.quantity + product.quantity,
@@ -578,7 +582,9 @@ export async function deleteProduct(id: string): Promise<void> {
     }
 
     // 5. Delete the product
-    await prisma.$executeRawUnsafe(`DELETE FROM products WHERE id = ?`, parseInt(id, 10));
+    await prisma.product.delete({
+      where: { id: parseInt(id, 10) }
+    });
 
     revalidatePath("/inventory");
     revalidatePath("/pre-orders");
@@ -600,19 +606,19 @@ export async function bulkAddStock(updates: { productId: string; quantityToAdd: 
       if (quantityToAdd <= 0) continue;
 
       // Get current product
-      const currentProducts: any[] = await prisma.$queryRaw`SELECT * FROM products WHERE id = ${productId} LIMIT 1`;
-      const currentProduct = currentProducts[0];
+      const currentProduct = await prisma.product.findUnique({
+        where: { id: parseInt(productId, 10) }
+      });
 
       if (!currentProduct) continue;
 
       const newQuantity = (currentProduct.quantity || 0) + quantityToAdd;
 
       // Update quantity
-      await prisma.$executeRawUnsafe(
-        `UPDATE products SET quantity = ?, updatedAt = NOW(3) WHERE id = ?`,
-        newQuantity,
-        productId
-      );
+      await prisma.product.update({
+        where: { id: parseInt(productId, 10) },
+        data: { quantity: newQuantity }
+      });
 
       // Log inventory change
       await createInventoryLog({
